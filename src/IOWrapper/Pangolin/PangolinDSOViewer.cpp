@@ -90,7 +90,7 @@ void PangolinDSOViewer::run()
 
 	// 3D visualization
 	pangolin::OpenGlRenderState Visualization3D_camera(
-		pangolin::ProjectionMatrix(w,h,400,400,w/2,h/2,0.1,1000),
+		pangolin::ProjectionMatrix(w,h,400,400,w/2,h/2,0.1,10000),
 		pangolin::ModelViewLookAt(-0,-5,-10, 0,0,0, pangolin::AxisNegY)
 		);
 
@@ -144,7 +144,7 @@ void PangolinDSOViewer::run()
 	pangolin::Var<bool> settings_showCoarseTracking("ui.showCoarseTracking",false,true);
 
 
-	pangolin::Var<int> settings_sparsity("ui.sparsity",1,1,20,false);
+	pangolin::Var<int> settings_sparsity("ui.sparsity",5,1,20,false);
 	pangolin::Var<double> settings_scaledVarTH("ui.relVarTH",0.001,1e-10,1e10, true);
 	pangolin::Var<double> settings_absVarTH("ui.absVarTH",0.001,1e-10,1e10, true);
 	pangolin::Var<double> settings_minRelBS("ui.minRelativeBS",0.1,0,1, false);

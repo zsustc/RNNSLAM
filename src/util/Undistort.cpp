@@ -483,6 +483,56 @@ ImageAndExposure* Undistort::undistort(const MinimalImage<T>* image_raw, float e
 template ImageAndExposure* Undistort::undistort<unsigned char>(const MinimalImage<unsigned char>* image_raw, float exposure, double timestamp, float factor) const;
 template ImageAndExposure* Undistort::undistort<unsigned short>(const MinimalImage<unsigned short>* image_raw, float exposure, double timestamp, float factor) const;
 
+template<typename T>
+float* Undistort::simpleReshape(const MinimalImage<T>* image_raw) const
+{
+	if(image_raw->w != wOrg || image_raw->h != hOrg)
+	{
+		printf("Undistort::simpleReshape: wrong image size (%d %d instead of %d %d) \n", image_raw->w, image_raw->h, w, h);
+		exit(1);
+	}
+
+	float* result = new float[w*h];
+
+	float* out_data = result;
+	float* in_data = image_raw->data;
+
+	float* noiseMapX=0;
+	float* noiseMapY=0;
+
+
+	for(int idx = w*h-1;idx>=0;idx--)
+	{
+		// get interp. values
+		float xx = remapX[idx];
+		float yy = remapY[idx];
+
+
+		if(xx<0)
+			out_data[idx] = 0;
+		else
+		{
+			// get integer and rational parts
+			int xxi = xx;
+			int yyi = yy;
+			xx -= xxi;
+			yy -= yyi;
+			float xxyy = xx*yy;
+
+			// get array base pointer
+			const float* src = in_data + xxi + yyi * wOrg;
+
+			// interpolate (bilinear)
+			out_data[idx] =  xxyy * src[1+wOrg]
+								+ (yy-xxyy) * src[wOrg]
+								+ (xx-xxyy) * src[1]
+								+ (1-xx-yy+xxyy) * src[0];
+		}
+	}
+
+	return result;
+}
+template float* Undistort::simpleReshape<float>(const MinimalImage<float>* image_raw) const;
 
 void Undistort::applyBlurNoise(float* img) const
 {

@@ -102,10 +102,11 @@ struct PrepImageItem
 class ImageFolderReader
 {
 public:
-	ImageFolderReader(std::string path, std::string calibFile, std::string gammaFile, std::string vignetteFile)
+	ImageFolderReader(std::string path, std::string calibFile, std::string gammaFile, std::string vignetteFile, std::string depth_path="")
 	{
 		this->path = path;
 		this->calibfile = calibFile;
+		this->depth_path = depth_path; // [ruibinma]
 
 #if HAS_ZIPLIB
 		ziparchive=0;
@@ -146,8 +147,14 @@ public:
 			exit(1);
 #endif
 		}
-		else
+		else{
 			getdir (path, files);
+			// [ruibinma] Currently do not support zip file if depth maps are used.
+			if(!depth_path.empty()){
+				getdir (depth_path, depth_files);
+				printf("Got %d depth maps from %s\n", (int)depth_files.size(), depth_path.c_str());
+			}
+		}
 
 
 		undistort = Undistort::getUndistorterForFile(calibFile, gammaFile, vignetteFile);
@@ -229,6 +236,17 @@ public:
 		return getImage_internal(id, 0);
 	}
 
+	float* getDepth(int id, int w=0, int h=0) // [ruibinma]
+	{
+		std::string path = depth_files[id];
+		return getDepth_internal(path, w, h);
+	}
+
+	float* getDepth_bypath(std::string path, int w=0, int h=0)
+	{
+		return getDepth_internal(path, w, h);
+	}
+
 
 	inline float* getPhotometricGamma()
 	{
@@ -279,6 +297,28 @@ private:
 		}
 	}
 
+	float* getDepth_internal(std::string path, int w=0, int h=0){
+		// [ruibinma] Currently only support reading from folder, not zipped file
+		Eigen::Vector2i originalSize = undistort->getOriginalSize();
+
+		if(w == 0) w = originalSize(0);
+		if(h == 0) h = originalSize(1);
+
+		MinimalImageF* mindepth = IOWrap::readDepth_F(path, w, h);
+		float* depth = undistort->simpleReshape(mindepth);
+		delete mindepth;
+		return depth;
+	}
+
+	std::string getFileName(const std::string& s) {
+		char sep = '/';
+		size_t i = s.rfind(sep, s.length());
+		if (i != std::string::npos) {
+			return(s.substr(i+1, s.length() - i));
+		}
+		return("");
+	}
+
 
 	ImageAndExposure* getImage_internal(int id, int unused)
 	{
@@ -287,6 +327,9 @@ private:
 				minimg,
 				(exposures.size() == 0 ? 1.0f : exposures[id]),
 				(timestamps.size() == 0 ? 0.0 : timestamps[id]));
+		// [ruibinma] record the name of this image
+		ret2->path = files[id];
+		ret2->name = getFileName(ret2->path);
 		delete minimg;
 		return ret2;
 	}
@@ -360,6 +403,7 @@ private:
 
 	std::vector<ImageAndExposure*> preloadedImages;
 	std::vector<std::string> files;
+	std::vector<std::string> depth_files; // [ruibinma]
 	std::vector<double> timestamps;
 	std::vector<float> exposures;
 
@@ -368,6 +412,7 @@ private:
 
 	std::string path;
 	std::string calibfile;
+	std::string depth_path; // [ruibinma]
 
 	bool isZipped;
 

@@ -56,6 +56,10 @@
 
 #include <cmath>
 
+#include <Python.h>
+#include <fstream>
+#include <iostream>
+
 namespace dso
 {
 int FrameHessian::instanceCounter=0;
@@ -173,6 +177,11 @@ FullSystem::FullSystem()
 	maxIdJetVisDebug = -1;
 	minIdJetVisTracker = -1;
 	maxIdJetVisTracker = -1;
+
+	numRNNBootstrap = 0;
+	bootstrapStep = 0;
+	lostTolerance = 0;
+	accLost = 0;
 }
 
 FullSystem::~FullSystem()
@@ -284,8 +293,42 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 	AffLight aff_last_2_l = AffLight(0,0);
 
 	std::vector<SE3,Eigen::aligned_allocator<SE3>> lastF_2_fh_tries;
-	if(allFrameHistory.size() == 2)
-		for(unsigned int i=0;i<lastF_2_fh_tries.size();i++) lastF_2_fh_tries.push_back(SE3());
+	if(allFrameHistory.size() == 2){
+		initializeFromInitializer(fh);
+		lastF_2_fh_tries.push_back(SE3(Eigen::Matrix<double, 3, 3>::Identity(), Eigen::Matrix<double,3,1>::Zero() ));
+        for(float rotDelta=0.02; rotDelta < 0.05; rotDelta = rotDelta + 0.02)
+        {
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,0,0), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,rotDelta,0), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,0,rotDelta), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,0,0), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,-rotDelta,0), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,0,-rotDelta), Vec3(0,0,0)));			// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,0,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,0,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,0,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,0,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,0,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+            lastF_2_fh_tries.push_back(SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+        }
+		coarseTracker->makeK(&Hcalib);
+		coarseTracker->setCTRefForFirstFrame(frameHessians);
+		lastF = coarseTracker->lastRef;
+	}
 	else
 	{
 		FrameShell* slast = allFrameHistory[allFrameHistory.size()-2];
@@ -342,6 +385,42 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 			lastF_2_fh_tries.push_back(fh_2_slast.inverse() * lastF_2_slast * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
 		}
 
+		// [ruibinma] use rnn pose as some backup solutions
+		if(fh->shell->use_rnn_pose){
+			SE3 lastF_2_fh_raw = fh->shell->RNN_cam.inverse();
+			lastF_2_fh_tries.push_back(lastF_2_fh_raw);
+			for(float rotDelta=0.02; rotDelta < 0.05; rotDelta++)
+			{
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,0,0), Vec3(0,0,0)));			// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,rotDelta,0), Vec3(0,0,0)));			// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,0,rotDelta), Vec3(0,0,0)));			// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,0,0), Vec3(0,0,0)));		// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,-rotDelta,0), Vec3(0,0,0)));		// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,0,-rotDelta), Vec3(0,0,0)));		// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,0,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,0,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,0,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,0), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,0,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,0,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,-rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,-rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,-rotDelta), Vec3(0,0,0)));	// assume constant motion.
+				lastF_2_fh_tries.push_back(lastF_2_fh_raw * SE3(Sophus::Quaterniond(1,rotDelta,rotDelta,rotDelta), Vec3(0,0,0)));	// assume constant motion.
+			}
+		}
+
+
 		if(!slast->poseValid || !sprelast->poseValid || !lastF->shell->poseValid)
 		{
 			lastF_2_fh_tries.clear();
@@ -373,7 +452,7 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 				achievedRes);	// in each level has to be at least as good as the last try.
 		tryIterations++;
 
-		if(i != 0)
+		if(i != 0 && !setting_debugout_runquiet)
 		{
 			printf("RE-TRACK ATTEMPT %d with initOption %d and start-lvl %d (ab %f %f): %f %f %f %f %f -> %f %f %f %f %f \n",
 					i,
@@ -458,6 +537,96 @@ Vec4 FullSystem::trackNewCoarse(FrameHessian* fh)
 
 
 	return Vec4(achievedRes[0], flowVecs[0], flowVecs[1], flowVecs[2]);
+}
+
+// process nonkey frame to refine key frame idepth
+void FullSystem::traceNewCoarseNonKey_rnn(FrameHessian *fh) {
+	boost::unique_lock<boost::mutex> lock(mapMutex);
+
+	Mat33f K = Mat33f::Identity();
+	K(0, 0) = Hcalib.fxl();
+	K(1, 1) = Hcalib.fyl();
+	K(0, 2) = Hcalib.cxl();
+	K(1, 2) = Hcalib.cyl();
+
+	Mat33f Ki = K.inverse();
+
+
+	for (FrameHessian *host : frameHessians)        // go through all active frames
+	{
+//		number++;
+		int trace_total = 0, trace_good = 0, trace_oob = 0, trace_out = 0, trace_skip = 0, trace_badcondition = 0, trace_uninitialized = 0;
+
+		// trans from reference keyframe to newest frame
+		SE3 hostToNew = fh->PRE_worldToCam * host->PRE_camToWorld;
+		// KRK-1
+		Mat33f KRKi = K * hostToNew.rotationMatrix().cast<float>() * K.inverse();
+        // KRi
+		Mat33f KRi = K * hostToNew.rotationMatrix().inverse().cast<float>();
+		// Kt
+		Vec3f Kt = K * hostToNew.translation().cast<float>();
+		// t
+		Vec3f t = hostToNew.translation().cast<float>();
+
+		//aff
+		Vec2f aff = AffLight::fromToVecExposure(host->ab_exposure, fh->ab_exposure, host->aff_g2l(), fh->aff_g2l()).cast<float>();
+
+		for (ImmaturePoint *ph : host->immaturePoints)
+		{
+			// do temperol stereo match
+			ImmaturePointStatus phTrackStatus = ph->traceOn(fh, KRKi, Kt, aff, &Hcalib, false);
+
+			if (phTrackStatus == ImmaturePointStatus::IPS_GOOD)
+			{
+				float u_fh = ph->lastTraceUV(0);
+				float v_fh = ph->lastTraceUV(1);
+				// project onto newest frame
+				Vec3f ptpMin = KRKi * (Vec3f(ph->u, ph->v, 1) / ph->idepth_min) + Kt;
+				float idepth_min_project = 1.0f / ptpMin[2];
+				Vec3f ptpMax = KRKi * (Vec3f(ph->u, ph->v, 1) / ph->idepth_max) + Kt;
+				float idepth_max_project = 1.0f / ptpMax[2];
+				float idepth_rnn = 1.0f / fh->depthrnn[static_cast<int>(u_fh + v_fh * wG[0])];
+
+				printf("%f %f %f >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n", idepth_min_project, idepth_rnn, idepth_max_project);
+
+
+				// project back
+				Vec3f pinverse = KRi * (Ki * Vec3f(u_fh, v_fh, 1) / idepth_rnn - t);
+				float idepth_update = 1.0f / pinverse(2);
+				// Vec3f pinverse_min = KRi * (Ki * Vec3f(phNonKey->u_stereo, phNonKey->v_stereo, 1) / phNonKey->idepth_min_stereo - t);
+				// idepth_min_update = 1.0f / pinverse_min(2);
+
+				// Vec3f pinverse_max = KRi * (Ki * Vec3f(phNonKey->u_stereo, phNonKey->v_stereo, 1) / phNonKey->idepth_max_stereo - t);
+				// idepth_max_update = 1.0f / pinverse_max(2);
+
+				// ph->idepth_min = (idepth_update + ph->idepth_min) / 2.0f;
+				// ph->idepth_max = (idepth_update + ph->idepth_max) / 2.0f;
+
+				if(idepth_update < ph->idepth_min){
+					ph->idepth_max = 0.5 * (ph->idepth_min + ph->idepth_max);
+					ph->idepth_min = idepth_update;
+				}
+				else if(idepth_update > ph->idepth_max){
+					ph->idepth_min = 0.5 * (ph->idepth_min + ph->idepth_max);
+					ph->idepth_max = idepth_update;
+				}
+				else{
+					ph->idepth_min = 0.5 * (ph->idepth_min + idepth_update);
+					ph->idepth_max = 0.5 * (ph->idepth_max + idepth_update);
+				}
+			}
+
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_GOOD) trace_good++;
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_BADCONDITION) trace_badcondition++;
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_OOB) trace_oob++;
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_OUTLIER) trace_out++;
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_SKIPPED) trace_skip++;
+			if (ph->lastTraceStatus == ImmaturePointStatus::IPS_UNINITIALIZED) trace_uninitialized++;
+			trace_total++;
+		}
+
+	}
+
 }
 
 void FullSystem::traceNewCoarse(FrameHessian* fh)
@@ -799,11 +968,82 @@ void FullSystem::flagPointsForRemoval()
 }
 
 
-void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
+void FullSystem::callRNN(ImageAndExposure* image){
+	char cmd[128];
+	sprintf(cmd, "net.predict('%s')", image->path.c_str());
+	PyRun_SimpleString(cmd);
+}
+
+void FullSystem::updateRNN(){
+	PyRun_SimpleString("net.update()");
+}
+
+float* FullSystem::readRNNDepth(ImageAndExposure* image, ImageFolderReader* reader, std::string rnncache){
+	std::string rnndepthpath = rnncache + image->name + ".depth.bin";
+	float* depth = reader->getDepth_bypath(rnndepthpath);
+	return depth;
+}
+
+float* FullSystem::readRNNPose(ImageAndExposure* image, ImageFolderReader* reader, std::string rnncache){
+	// the 8th number is rnn reprojection error
+	std::string rnnposepath = rnncache + image->name + ".pose.bin";
+	float* pose = new float[8];
+	std::ifstream fin(rnnposepath.c_str(), std::ios::binary);
+	fin.read(reinterpret_cast<char*>(pose), 8*sizeof(float));
+	fin.close();
+	return pose;
+}
+
+void FullSystem::setupRNN(std::string folder, ImageFolderReader* r, int num){
+	rnncache = folder;
+	reader = r;
+	numRNNBootstrap = num;
+}
+
+float FullSystem::callAndReadRNN(ImageAndExposure* image, bool update, FrameHessian* fh){
+	float* pose = NULL;
+	float rnn_reprojection_error = -1;
+	callRNN(image);
+	if(update) updateRNN();
+	pose = readRNNPose(image, reader, rnncache);
+	rnn_reprojection_error = pose[7];
+	
+	if(fh!=NULL){
+		float* depth = NULL;
+		depth = readRNNDepth(image, reader, rnncache);
+		fh->shell->set_RNNcamPrediction(pose);
+		fh->makeDepths(depth);
+		delete[] depth;
+	}
+	delete[] pose;
+	return rnn_reprojection_error;
+}
+
+
+// [ruibinma] added additional parameters 'pose' and 'depth' which are rnn predictions
+// computed offine.
+void FullSystem::addActiveFrame( ImageAndExposure* image, int id)
 {
 
     if(isLost) return;
 	boost::unique_lock<boost::mutex> lock(trackMutex);
+
+	float rnn_reprojection_error = -1;
+	// ===== Bootstrap RNN
+
+	if(bootstrapStep==0){
+		char cmd[256];
+		sprintf(cmd, "net.assign_keyframe_by_path('%s')", image->path.c_str());
+		PyRun_SimpleString(cmd);
+	}
+	if(bootstrapStep < numRNNBootstrap){
+		rnn_reprojection_error = callAndReadRNN(image, true, NULL);
+		printf("(rnn %f)  RNN bootstrapping [%d/%d]\n", rnn_reprojection_error, bootstrapStep+1, numRNNBootstrap);
+		bootstrapStep++;
+		lock.unlock();
+		return;
+	}
+	if(bootstrapStep == 0) bootstrapStep++;
 
 
 	// =========================== add into allFrameHistory =========================
@@ -817,34 +1057,25 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 	fh->shell = shell;
 	allFrameHistory.push_back(shell);
 
-
 	// =========================== make Images / derivatives etc. =========================
 	fh->ab_exposure = image->exposure_time;
     fh->makeImages(image->image, &Hcalib);
 
-
-
-
 	if(!initialized)
 	{
+		// Run RNN prediction first
+		rnn_reprojection_error = callAndReadRNN(image, true, fh);
+		printf("(rnn %f)  \n", rnn_reprojection_error);
+		if(rnn_reprojection_error >= 0.2){
+			printf("Not a good initial frame, skipped\n");
+			allFrameHistory.pop_back();
+			return;
+		}
 		// use initializer!
 		if(coarseInitializer->frameID<0)	// first frame set. fh is kept by coarseInitializer.
 		{
-
 			coarseInitializer->setFirst(&Hcalib, fh);
-		}
-		else if(coarseInitializer->trackFrame(fh, outputWrapper))	// if SNAPPED
-		{
-
-			initializeFromInitializer(fh);
-			lock.unlock();
-			deliverTrackedFrame(fh, true);
-		}
-		else
-		{
-			// if still initializing
-			fh->shell->poseValid = false;
-			delete fh;
+			initialized=true;
 		}
 		return;
 	}
@@ -854,17 +1085,61 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 		if(coarseTracker_forNewKF->refFrameID > coarseTracker->refFrameID)
 		{
 			boost::unique_lock<boost::mutex> crlock(coarseTrackerSwapMutex);
-			CoarseTracker* tmp = coarseTracker; coarseTracker=coarseTracker_forNewKF; coarseTracker_forNewKF=tmp;
+			CoarseTracker* tmp = coarseTracker;
+			coarseTracker=coarseTracker_forNewKF;
+			coarseTracker_forNewKF=tmp;
+			updateRNN();
 		}
+		// Run RNN prediction first
+		rnn_reprojection_error = callAndReadRNN(image, false, fh);
+		if(!setting_debugout_runquiet)
+		{
+			printf("(rnn %f)  ", rnn_reprojection_error);
+		}
+		
 
 
 		Vec4 tres = trackNewCoarse(fh);
-		if(!std::isfinite((double)tres[0]) || !std::isfinite((double)tres[1]) || !std::isfinite((double)tres[2]) || !std::isfinite((double)tres[3]))
+		Vec2 refToFh=AffLight::fromToVecExposure(coarseTracker->lastRef->ab_exposure, fh->ab_exposure,
+			coarseTracker->lastRef_aff_g2l, fh->shell->aff_g2l);
+		bool badCoarsePrediction = false;
+		badCoarsePrediction = (
+			setting_kfGlobalWeight*setting_maxShiftWeightT *  sqrtf((double)tres[1]) / (wG[0]+hG[0]) +
+			setting_kfGlobalWeight*setting_maxShiftWeightR *  sqrtf((double)tres[2]) / (wG[0]+hG[0]) +
+			setting_kfGlobalWeight*setting_maxShiftWeightRT * sqrtf((double)tres[3]) / (wG[0]+hG[0]) +
+			setting_kfGlobalWeight*setting_maxAffineWeight * fabs(logf((float)refToFh[0])) > setting_badPredictionWeight ||
+			setting_badPredictionWeight * 2 * coarseTracker->firstCoarseRMSE < tres[0]);
+		if(!setting_debugout_runquiet){
+			printf("%f %f %f %f  %s\n", tres[0], tres[1], tres[2], tres[3] ,image->name.c_str());
+		}
+		if(badCoarsePrediction){
+			printf("BAD PREDICTION\n");
+			if(allFrameHistory.size() <= 2){
+				printf("TRACKING FOR INITIALIZATION FAILED, RESTART.\n");
+				initFailed = true;
+				return;
+			}
+		}
+
+
+		if(!std::isfinite((double)tres[0]) || !std::isfinite((double)tres[1]) ||
+		   !std::isfinite((double)tres[2]) || !std::isfinite((double)tres[3]) || badCoarsePrediction)
         {
-            printf("Initial Tracking failed: LOST!\n");
-			isLost=true;
+			if(lostTolerance > 0 && ++accLost <= lostTolerance){
+				delete fh;
+				allFrameHistory.pop_back();
+				printf("Tracking lost, skipped. [%d/%d]\n", accLost, lostTolerance);
+			}
+			else{
+            	printf("Initial Tracking failed: LOST!\n");
+				isLost=true;
+			}
             return;
         }
+		else if(accLost > 0){
+			printf("\n==> Tracking Resumed.\n");
+			accLost = 0;
+		}
 
 		bool needToMakeKF = false;
 		if(setting_keyframesPerSecond > 0)
@@ -892,9 +1167,6 @@ void FullSystem::addActiveFrame( ImageAndExposure* image, int id )
 
         for(IOWrap::Output3DWrapper* ow : outputWrapper)
             ow->publishCamPose(fh->shell, &Hcalib);
-
-
-
 
 		lock.unlock();
 		deliverTrackedFrame(fh, needToMakeKF);
@@ -1034,6 +1306,7 @@ void FullSystem::makeNonKeyFrame( FrameHessian* fh)
 		fh->setEvalPT_scaled(fh->shell->camToWorld.inverse(),fh->shell->aff_g2l);
 	}
 
+	// traceNewCoarseNonKey_rnn(fh);
 	traceNewCoarse(fh);
 	delete fh;
 }
@@ -1108,17 +1381,17 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	{
 		if(allKeyFramesHistory.size()==2 && rmse > 20*benchmark_initializerSlackFactor)
 		{
-			printf("I THINK INITIALIZATINO FAILED! Resetting.\n");
+			printf("I THINK INITIALIZATINO FAILED! Resetting. [2]\n");
 			initFailed=true;
 		}
 		if(allKeyFramesHistory.size()==3 && rmse > 13*benchmark_initializerSlackFactor)
 		{
-			printf("I THINK INITIALIZATINO FAILED! Resetting.\n");
+			printf("I THINK INITIALIZATINO FAILED! Resetting. [3]\n");
 			initFailed=true;
 		}
 		if(allKeyFramesHistory.size()==4 && rmse > 9*benchmark_initializerSlackFactor)
 		{
-			printf("I THINK INITIALIZATINO FAILED! Resetting.\n");
+			printf("I THINK INITIALIZATINO FAILED! Resetting. [4]\n");
 			initFailed=true;
 		}
 	}
@@ -1170,18 +1443,7 @@ void FullSystem::makeKeyFrame( FrameHessian* fh)
 	// =========================== add new Immature points & new residuals =========================
 	makeNewTraces(fh, 0);
 
-
-
-
-
-    for(IOWrap::Output3DWrapper* ow : outputWrapper)
-    {
-        ow->publishGraph(ef->connectivityMap);
-        ow->publishKeyframes(frameHessians, false, &Hcalib);
-    }
-
-
-
+	publish(false);
 	// =========================== Marginalize Frames =========================
 
 	for(unsigned int i=0;i<frameHessians.size();i++)
@@ -1209,21 +1471,12 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 	ef->insertFrame(firstFrame, &Hcalib);
 	setPrecalcValues();
 
-	//int numPointsTotal = makePixelStatus(firstFrame->dI, selectionMap, wG[0], hG[0], setting_desiredDensity);
-	//int numPointsTotal = pixelSelector->makeMaps(firstFrame->dIp, selectionMap,setting_desiredDensity);
-
 	firstFrame->pointHessians.reserve(wG[0]*hG[0]*0.2f);
 	firstFrame->pointHessiansMarginalized.reserve(wG[0]*hG[0]*0.2f);
 	firstFrame->pointHessiansOut.reserve(wG[0]*hG[0]*0.2f);
 
 
-	float sumID=1e-5, numID=1e-5;
-	for(int i=0;i<coarseInitializer->numPoints[0];i++)
-	{
-		sumID += coarseInitializer->points[0][i].iR;
-		numID++;
-	}
-	float rescaleFactor = 1 / (sumID / numID);
+	float rescaleFactor = 1;//1 / (sumID / numID);
 
 	// randomly sub-select the points I need.
 	float keepPercentage = setting_desiredPointDensity / coarseInitializer->numPoints[0];
@@ -1249,6 +1502,11 @@ void FullSystem::initializeFromInitializer(FrameHessian* newFrame)
 
 		ph->setIdepthScaled(point->iR*rescaleFactor);
 		ph->setIdepthZero(ph->idepth);
+		if(newFrame->depthrnn !=NULL){
+			float idepth_rnn = 1.0f / newFrame->depthrnn[static_cast<int>(point->u + point->v * wG[0])];
+			ph->setIdepthScaled(idepth_rnn);
+			ph->setIdepthZero(idepth_rnn);
+		}
 		ph->hasDepthPrior=true;
 		ph->setPointStatus(PointHessian::ACTIVE);
 
@@ -1302,6 +1560,11 @@ void FullSystem::makeNewTraces(FrameHessian* newFrame, float* gtDepth)
 		if(selectionMap[i]==0) continue;
 
 		ImmaturePoint* impt = new ImmaturePoint(x,y,newFrame, selectionMap[i], &Hcalib);
+
+		// [ruibinma] implant rnn depth prediction
+		if(newFrame->depthrnn != NULL)
+			impt->idepth_GT = 1.0f / newFrame->depthrnn[i];
+
 		if(!std::isfinite(impt->energyTH)) delete impt;
 		else newFrame->immaturePoints.push_back(impt);
 
@@ -1494,7 +1757,13 @@ void FullSystem::printEvalLine()
 	return;
 }
 
-
+void FullSystem::publish(bool finalize){
+    for(IOWrap::Output3DWrapper* ow : outputWrapper)
+    {
+        ow->publishGraph(ef->connectivityMap);
+        ow->publishKeyframes(frameHessians, finalize, &Hcalib);
+    }
+}
 
 
 

@@ -28,6 +28,7 @@
 #include <deque>
 #include "util/NumType.h"
 #include "util/globalCalib.h"
+#include "util/DatasetReader.h"
 #include "vector"
  
 #include <iostream>
@@ -41,6 +42,7 @@
 #include "FullSystem/PixelSelector2.h"
 
 #include <math.h>
+#include <Python.h>
 
 namespace dso
 {
@@ -136,7 +138,21 @@ public:
 	virtual ~FullSystem();
 
 	// adds a new frame, and creates point & residual structs.
+	// [ruibinma] 'float* pose=NULL': predictions provided outside, e.g., a RNN prediction
+	void callRNN(ImageAndExposure* image);
+	void updateRNN();
+	float* readRNNDepth(ImageAndExposure* image, ImageFolderReader* reader, std::string rnncache);
+	float* readRNNPose(ImageAndExposure* image, ImageFolderReader* reader, std::string rnncache);
+	float callAndReadRNN(ImageAndExposure* image, bool update, FrameHessian* fh=NULL);
 	void addActiveFrame(ImageAndExposure* image, int id);
+	int numRNNBootstrap;
+	int bootstrapStep;
+	int lostTolerance;
+	int accLost;
+	bool useRNN;
+	std::string rnncache;
+	ImageFolderReader* reader;
+	void setupRNN(std::string folder, ImageFolderReader* r, int num);
 
 	// marginalizes a frame. drops / marginalizes points & residuals.
 	void marginalizeFrame(FrameHessian* frame);
@@ -152,6 +168,7 @@ public:
 	// contains pointers to active frames
 
     std::vector<IOWrap::Output3DWrapper*> outputWrapper;
+	void publish(bool finalize);
 
 	bool isLost;
 	bool initFailed;
@@ -178,6 +195,7 @@ private:
 	// mainPipelineFunctions
 	Vec4 trackNewCoarse(FrameHessian* fh);
 	void traceNewCoarse(FrameHessian* fh);
+	void traceNewCoarseNonKey_rnn(FrameHessian* fh);
 	void activatePoints();
 	void activatePointsMT();
 	void activatePointsOldFirst();

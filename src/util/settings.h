@@ -59,6 +59,7 @@ extern float setting_maxShiftWeightR;
 extern float setting_maxShiftWeightRT;
 extern float setting_maxAffineWeight;
 extern float setting_kfGlobalWeight;
+extern float setting_badPredictionWeight;
 
 
 

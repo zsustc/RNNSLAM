@@ -101,10 +101,23 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 		{
 			int npts = numPoints[lvl];
 			Pnt* ptsl = points[lvl];
+
+			// [ruibinma]
+			float* depthrnn_l = newFrame->depthrnnp[lvl];
+			int wl = w[lvl], hl = h[lvl];
 			for(int i=0;i<npts;i++)
 			{
-				ptsl[i].iR = 1;
-				ptsl[i].idepth_new = 1;
+				// [ruibinma]
+				if(depthrnn_l != NULL){
+					int x = static_cast<int>(ptsl[i].u);
+					int y = static_cast<int>(ptsl[i].v);
+					ptsl[i].idepth_new = 1.0f / depthrnn_l[x+y*wl];
+					ptsl[i].iR = 1.0f / depthrnn_l[x+y*wl];
+				}
+				else{
+					ptsl[i].iR = 1;
+					ptsl[i].idepth_new = 1;
+				}
 				ptsl[i].lastHessian = 0;
 			}
 		}
@@ -112,6 +125,14 @@ bool CoarseInitializer::trackFrame(FrameHessian* newFrameHessian, std::vector<IO
 
 
 	SE3 refToNew_current = thisToNext;
+	// [ruibinma]
+	if(newFrame->shell->use_rnn_pose){
+		// printf("Using RNN poses as initialization\n");
+		// std::cout<<thisToNext.matrix()<<std::endl;
+		// refToNew_current = newFrame->shell->RNN_camToWorld.inverse()*firstFrame->shell->RNN_camToWorld;
+		refToNew_current = newFrame->shell->RNN_cam.inverse();
+		// std::cout<<newFrame->shell->RNN_cam.matrix()<<std::endl;
+	}
 	AffLight refToNew_aff_current = thisToNext_aff;
 
 	if(firstFrame->ab_exposure>0 && newFrame->ab_exposure>0)
@@ -778,6 +799,9 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 	float densities[] = {0.03,0.05,0.15,0.5,1};
 	for(int lvl=0; lvl<pyrLevelsUsed; lvl++)
 	{
+		// [ruibinma]
+		float* depthrnn_l = firstFrame->depthrnnp[lvl];
+
 		sel.currentPotential = 3;
 		int npts;
 		if(lvl == 0)
@@ -801,10 +825,17 @@ void CoarseInitializer::setFirst(	CalibHessian* HCalib, FrameHessian* newFrameHe
 			if((lvl!=0 && statusMapB[x+y*wl]) || (lvl==0 && statusMap[x+y*wl] != 0))
 			{
 				//assert(patternNum==9);
-				pl[nl].u = x+0.1;
-				pl[nl].v = y+0.1;
-				pl[nl].idepth = 1;
-				pl[nl].iR = 1;
+				pl[nl].u = x;
+				pl[nl].v = y;
+				if(depthrnn_l != NULL){
+					pl[nl].idepth = 1.0f / depthrnn_l[x+y*wl];
+					pl[nl].iR = 1.0f / depthrnn_l[x+y*wl];
+				}
+				else{
+					pl[nl].idepth = 1;
+					pl[nl].iR = 1;
+				}
+
 				pl[nl].isGood=true;
 				pl[nl].energy.setZero();
 				pl[nl].lastHessian=0;

@@ -53,7 +53,10 @@ public:
 			SE3 &lastToNew_out, AffLight &aff_g2l_out,
 			int coarsestLvl, Vec5 minResForAbort,
 			IOWrap::Output3DWrapper* wrap=0);
-
+	void setCTRefForFirstFrame(
+			std::vector<FrameHessian*> frameHessians);
+	void makeCoarseDepthForFirstFrame(FrameHessian* fh);
+	
 	void setCoarseTrackingRef(
 			std::vector<FrameHessian*> frameHessians);
 

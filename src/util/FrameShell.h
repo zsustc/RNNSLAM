@@ -26,6 +26,7 @@
 
 #include "util/NumType.h"
 #include "algorithm"
+#include <iostream>
 
 namespace dso
 {
@@ -66,6 +67,20 @@ public:
 		statistics_outlierResOnThis=statistics_goodResOnThis=0;
 		trackingRef=0;
 		camToTrackingRef = SE3();
+	}
+
+
+	// [ruibinma] Stuff related to RNN prediction
+	bool use_rnn_pose = false;
+	SE3 RNN_cam; // camera to reference
+	// SE3 RNN_camToWorld;
+	inline void set_RNNcamPrediction(float* pose)
+	{
+		// pose: Quaternion vector [4d] + translation vector [3d]pose[6]
+		use_rnn_pose = true;
+		RNN_cam = SE3(Sophus::Quaterniond(pose[0], pose[1], pose[2], pose[3]),
+					  Vec3(pose[4], pose[5], pose[6]));
+		// RNN_cam = RNN_cam.inverse();
 	}
 };
 

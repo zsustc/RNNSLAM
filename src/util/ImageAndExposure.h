@@ -35,6 +35,8 @@ class ImageAndExposure
 {
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+	std::string path;
+	std::string name;
 	float* image;			// irradiance. between 0 and 256
 	int w,h;				// width and height;
 	double timestamp;

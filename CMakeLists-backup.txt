@@ -4,8 +4,6 @@ PROJECT(${PROJECT_NAME})
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
-#set(PYTHON_INCLUDE_DIR $ENV{HOME}/anaconda3/envs/pytorch/include/python3.6m/)
-#set(CUSTOM_PYTHON_LIBRARY $ENV{HOME}/anaconda3/envs/pytorch/lib/libpython3.6m.so)
 
 set(BUILD_TYPE Release)
 #set(BUILD_TYPE RelWithDebInfo)
@@ -15,8 +13,6 @@ set(LIBRARY_OUTPUT_PATH lib)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # required libraries
-find_package(PythonLibs 3 REQUIRED)
-
 find_package(SuiteParse REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Boost COMPONENTS system thread) 
@@ -66,8 +62,7 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/thirdparty/Sophus
   ${PROJECT_SOURCE_DIR}/thirdparty/sse2neon
   ${EIGEN3_INCLUDE_DIR}
-)
-include_directories(${PYTHON_INCLUDE_DIRS})
+) 
 
 
 # decide if we have pangolin
@@ -130,8 +125,6 @@ endif()
 if (OpenCV_FOUND AND Pangolin_FOUND)
 	message("--- compiling dso_dataset.")
 	add_executable(dso_dataset ${PROJECT_SOURCE_DIR}/src/main_dso_pangolin.cpp )
-	target_link_libraries(dso_dataset ${PYTHON_LIBRARIES})
-	message("${PYTHON_LIBRARIES}")
     target_link_libraries(dso_dataset dso boost_system cxsparse ${BOOST_THREAD_LIBRARY} ${LIBZIP_LIBRARY} ${Pangolin_LIBRARIES} ${OpenCV_LIBS})
 else()
 	message("--- not building dso_dataset, since either don't have openCV or Pangolin.")

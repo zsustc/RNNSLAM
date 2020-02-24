@@ -190,6 +190,40 @@ void FrameHessian::makeImages(float* color, CalibHessian* HCalib)
 	}
 }
 
+void FrameHessian::makeDepths(float* depth)
+{
+	// compute depth map pyramids
+	for(int i=0; i<pyrLevelsUsed; i++){
+		depthrnnp[i] = new float[wG[i]*hG[i]];
+	}
+	depthrnn = depthrnnp[0];
+
+	int w = wG[0];
+	int h = hG[0];
+	for(int i = 0; i < w*h; i++){
+		depthrnn[i] = depth[i];
+	}
+
+	for(int lvl = 0; lvl < pyrLevelsUsed; lvl++){
+		int wl = wG[lvl], hl = hG[lvl];
+		float* depthrnn_l = depthrnnp[lvl];
+		if(lvl > 0){
+			int lvlm1 = lvl - 1;
+			int wlm1 = wG[lvlm1];
+			float* depthrnn_lm = depthrnnp[lvlm1];
+			for(int y = 0; y < hl; y++){
+				for(int x = 0; x < wl; x++){
+					depthrnn_l[x + y*wl] = 0.25f * (
+						depthrnn_lm[2*x   + 2*y*wlm1] +
+						depthrnn_lm[2*x+1 + 2*y*wlm1] +
+						depthrnn_lm[2*x   + 2*y*wlm1+wlm1] +
+						depthrnn_lm[2*x+1 + 2*y*wlm1+wlm1]);
+				}
+			}
+		}
+	}
+}
+
 void FrameFramePrecalc::set(FrameHessian* host, FrameHessian* target, CalibHessian* HCalib )
 {
 	this->host = host;

@@ -294,6 +294,15 @@ struct FrameHessian
 		return Vec10::Zero();
 	}
 
+	// [ruibinma]
+	// MinimalImageF* rnndepth;
+	// inline void set_RNNDepth(MinimalImageF* depth){
+	// 	rnndepth = depth;
+	// }
+	float* depthrnn = NULL;
+	float* depthrnnp[PYR_LEVELS] = {NULL};
+	void makeDepths(float* depth);
+
 };
 
 struct CalibHessian

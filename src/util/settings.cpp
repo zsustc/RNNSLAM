@@ -38,8 +38,9 @@ bool setting_realTimeMaxKF = false;   // if true, takes as many KF's as possible
 float setting_maxShiftWeightT= 0.04f * (640+480);
 float setting_maxShiftWeightR= 0.0f * (640+480);
 float setting_maxShiftWeightRT= 0.02f * (640+480);
-float setting_kfGlobalWeight = 1;   // general weight on threshold, the larger the more KF's are taken (e.g., 2 = double the amount of KF's).
+float setting_kfGlobalWeight = 2;   // general weight on threshold, the larger the more KF's are taken (e.g., 2 = double the amount of KF's).
 float setting_maxAffineWeight= 2;
+float setting_badPredictionWeight = 50; // for determining bad predictions, higher -> less bad prediction
 
 
 /* initial hessian values to fix unobservable dimensions / priors on affine lighting parameters.

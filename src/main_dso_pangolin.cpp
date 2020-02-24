@@ -22,7 +22,7 @@
 */
 
 
-
+#include <fstream>
 #include <thread>
 #include <locale.h>
 #include <signal.h>
@@ -50,11 +50,28 @@
 #include "IOWrapper/Pangolin/PangolinDSOViewer.h"
 #include "IOWrapper/OutputWrapper/SampleOutputWrapper.h"
 
+#include <Python.h>
+
 
 std::string vignette = "";
 std::string gammaCalib = "";
 std::string source = "";
 std::string calib = "";
+// [ruibinma]
+std::string rnnpose = "";
+std::string rnndepth = "";
+std::string rnn="";
+std::string rnnmodel="";
+int lostTolerance = 0;
+int numRNNBootstrap = 0;
+std::string posefilename="pose_result.txt";
+std::string keyframefilename="kf_pose_result.txt";
+std::string posetumfilename="pose_result_tum.txt";
+std::string keyframetumfilename="kf_pose_result_tum.txt";
+std::string sparse_depth_dir="depth_result/";
+std::string depth_dir="depth/";
+std::string output_prefix="";
+
 double rescale = 1;
 bool reverse = false;
 bool disableROS = false;
@@ -64,6 +81,7 @@ bool prefetch = false;
 float playbackSpeed=0;	// 0 for linearize (play as fast as possible, while sequentializing tracking & mapping). otherwise, factor on timestamps.
 bool preload=false;
 bool useSampleOutput=false;
+bool resetUponFailure=false;
 
 
 int mode=0;
@@ -107,7 +125,7 @@ void settingsDefault(int preset)
 
 		playbackSpeed = (preset==0 ? 0 : 1);
 		preload = preset==1;
-		setting_desiredImmatureDensity = 1500;
+		setting_desiredImmatureDensity = 2000;
 		setting_desiredPointDensity = 2000;
 		setting_minFrames = 5;
 		setting_maxFrames = 7;
@@ -162,6 +180,16 @@ void parseArgument(char* arg)
         {
             useSampleOutput = true;
             printf("USING SAMPLE OUTPUT WRAPPER!\n");
+        }
+        return;
+    }
+
+	if(1==sscanf(arg,"resetUponFailure=%d",&option))
+    {
+        if(option==1)
+        {
+            resetUponFailure = true;
+            printf("Will Reset if lose track!\n");
         }
         return;
     }
@@ -346,9 +374,72 @@ void parseArgument(char* arg)
 		return;
 	}
 
+	// [ruibinma] add another argument loading RNN
+	if(1==sscanf(arg, "rnn=%s", buf)){
+		rnn = buf;
+		printf("loading RNN module from %s\n", rnn.c_str());
+		return;
+	}
+
+	// [ruibinma] add another argument loading RNN
+	if(1==sscanf(arg, "rnnmodel=%s", buf)){
+		rnnmodel = buf;
+		printf("loading RNN model from %s\n", rnnmodel.c_str());
+		return;
+	}
+
+	if(1==sscanf(arg, "lostTolerance=%d", &option)){
+		lostTolerance = option;
+		printf("Lost Tolerance = %d\n", lostTolerance);
+		return;
+	}
+
+	if(1==sscanf(arg, "numRNNBootstrap=%d", &option)){
+		numRNNBootstrap = option;
+		printf("RNN bootstrap step = %d\n", numRNNBootstrap);
+		return;
+	}
+
+	if(1==sscanf(arg, "output_prefix=%s", buf)){
+		output_prefix = buf;
+		printf("Writing output to %s\n", output_prefix.c_str());
+		depth_dir = output_prefix + depth_dir;
+		sparse_depth_dir = output_prefix + sparse_depth_dir;
+		posefilename = output_prefix + posefilename;
+		keyframefilename = output_prefix + keyframefilename;
+		posetumfilename = output_prefix + posetumfilename;
+		keyframetumfilename = output_prefix + keyframetumfilename;
+		return;
+	}
+
 	printf("could not parse argument \"%s\"!!!!\n", arg);
 }
 
+
+void initializePythonRNN(std::string rnn, std::string rnnmodel){
+	Py_Initialize();
+	PyRun_SimpleString("import sys");
+	char cmd[256];
+	sprintf(cmd, "sys.path.append('%s')", rnn.c_str());
+	PyRun_SimpleString(cmd);
+	PyRun_SimpleString("import RNN_pred_colon_reproj");
+	sprintf(cmd, "net = RNN_pred_colon_reproj.RNN_depth_pred('%s', output_dir='%s')",
+		rnnmodel.c_str(), depth_dir.c_str());
+	PyRun_SimpleString(cmd);
+	printf("\n\n\n            Python RNN predictor initialized!\n\n\n\n");
+
+	// some convenient folder cleaning
+	PyRun_SimpleString("import os");
+	PyRun_SimpleString("from shutil import rmtree");
+	sprintf(cmd, "rmtree('%s')", sparse_depth_dir.c_str());
+	PyRun_SimpleString(cmd);
+	sprintf(cmd, "rmtree('%s')", depth_dir.c_str());
+	PyRun_SimpleString(cmd);
+	sprintf(cmd, "os.makedirs('%s')", sparse_depth_dir.c_str());
+	PyRun_SimpleString(cmd);
+	sprintf(cmd, "os.makedirs('%s')", depth_dir.c_str());
+	PyRun_SimpleString(cmd);
+}
 
 
 int main( int argc, char** argv )
@@ -360,10 +451,14 @@ int main( int argc, char** argv )
 	// hook crtl+C.
 	boost::thread exThread = boost::thread(exitThread);
 
+	if(!rnn.empty() && !rnnmodel.empty())
+		initializePythonRNN(rnn, rnnmodel);
 
-	ImageFolderReader* reader = new ImageFolderReader(source,calib, gammaCalib, vignette);
+	ImageFolderReader* reader = new ImageFolderReader(source,calib, gammaCalib, vignette, rnndepth);
 	reader->setGlobalCalibration();
 
+	// [ruibinma] reader of RNN poses
+	std::ifstream rnnpose_reader(rnnpose);
 
 
 	if(setting_photometricCalibration > 0 && reader->getPhotometricGamma() == 0)
@@ -391,8 +486,10 @@ int main( int argc, char** argv )
 
 
 	FullSystem* fullSystem = new FullSystem();
+	fullSystem->lostTolerance = lostTolerance;
 	fullSystem->setGammaFunction(reader->getPhotometricGamma());
 	fullSystem->linearizeOperation = (playbackSpeed==0);
+	if(!rnn.empty()) fullSystem->setupRNN(depth_dir, reader, numRNNBootstrap);
 
 
 
@@ -410,7 +507,7 @@ int main( int argc, char** argv )
 
 
     if(useSampleOutput)
-        fullSystem->outputWrapper.push_back(new IOWrap::SampleOutputWrapper());
+        fullSystem->outputWrapper.push_back(new IOWrap::SampleOutputWrapper(sparse_depth_dir, posefilename, keyframefilename, posetumfilename, keyframetumfilename));
 
 
 
@@ -451,9 +548,10 @@ int main( int argc, char** argv )
         clock_t started = clock();
         double sInitializerOffset=0;
 
-
+		int num_successful_imgs = 0;
         for(int ii=0;ii<(int)idsToPlay.size(); ii++)
         {
+			printf("[frame %5d]\n", ii);
             if(!fullSystem->initialized)	// if not initialized: reset start time.
             {
                 gettimeofday(&tv_start, NULL);
@@ -489,16 +587,28 @@ int main( int argc, char** argv )
 
 
 
-            if(!skipFrame) fullSystem->addActiveFrame(img, i);
+            if(!skipFrame){
+				try{
+					fullSystem->addActiveFrame(img, i);
+				}
+				catch(...){
+					printf("Got an internal error, ignored.\n");
+					setting_fullResetRequested = true;
+				}
+			}
 
 
 
 
             delete img;
 
-            if(fullSystem->initFailed || setting_fullResetRequested)
+            if((resetUponFailure && fullSystem->isLost) || fullSystem->initFailed || setting_fullResetRequested)
             {
-                if(ii < 250 || setting_fullResetRequested)
+				if(fullSystem->isLost)
+				{
+					printf("\n            LOST!!\n");
+				}
+                if(ii < (int)idsToPlay.size() || setting_fullResetRequested)
                 {
                     printf("RESETTING!\n");
 
@@ -508,6 +618,11 @@ int main( int argc, char** argv )
                     for(IOWrap::Output3DWrapper* ow : wraps) ow->reset();
 
                     fullSystem = new FullSystem();
+					fullSystem->lostTolerance = lostTolerance;
+					if(!rnn.empty()){
+						fullSystem->setupRNN(depth_dir, reader, (numRNNBootstrap + 1) / 2); // avoid bootstrap RNN for too many times to waste frames
+						fullSystem->updateRNN();
+					}
                     fullSystem->setGammaFunction(reader->getPhotometricGamma());
                     fullSystem->linearizeOperation = (playbackSpeed==0);
 
@@ -517,6 +632,9 @@ int main( int argc, char** argv )
                     setting_fullResetRequested=false;
                 }
             }
+			else{
+				num_successful_imgs++;
+			}
 
             if(fullSystem->isLost)
             {
@@ -525,13 +643,18 @@ int main( int argc, char** argv )
             }
 
         }
+		if(useSampleOutput){
+			printf("Writting outputs ...\n");
+			fullSystem->publish(true); // this step is really used to output all the keyframes, not for display
+		}
+		printf("[%d/%d] frames worked", num_successful_imgs, (int)idsToPlay.size());
+
         fullSystem->blockUntilMappingIsFinished();
         clock_t ended = clock();
         struct timeval tv_end;
         gettimeofday(&tv_end, NULL);
 
 
-        fullSystem->printResult("result.txt");
 
 
         int numFramesProcessed = abs(idsToPlay[0]-idsToPlay.back());
@@ -575,7 +698,10 @@ int main( int argc, char** argv )
 		delete ow;
 	}
 
-
+	if(!rnn.empty()){
+		printf("CLOSE PYTHON!\n");
+		Py_Finalize();
+	}
 
 	printf("DELETE FULLSYSTEM!\n");
 	delete fullSystem;

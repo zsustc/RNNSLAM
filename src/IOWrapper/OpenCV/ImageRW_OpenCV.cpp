@@ -21,8 +21,8 @@
 * along with DSO. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-
+#include <iostream>
+#include <fstream> // [ruibinma]
 #include "IOWrapper/ImageRW.h"
 #include <opencv2/highgui/highgui.hpp>
 
@@ -32,6 +32,15 @@ namespace dso
 
 namespace IOWrap
 {
+MinimalImageF* readDepth_F(std::string filename, int w, int h) // [ruibinma]
+{
+	std::ifstream fin(filename.c_str(), std::ios::binary);
+	MinimalImageF* depth = new MinimalImageF(w, h);
+	fin.read(reinterpret_cast<char*>(depth->data), sizeof(float)*w*h);
+	fin.close();
+	return depth;
+}
+
 MinimalImageB* readImageBW_8U(std::string filename)
 {
 	cv::Mat m = cv::imread(filename, CV_LOAD_IMAGE_GRAYSCALE);
